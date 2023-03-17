@@ -38,17 +38,17 @@ def train_bpe(text: str, vocab_size: int):
     data = tuple(list(w) for w in stream_words(text))
     tokens = set(text)
 
-    while len(tokens) < vocab_size:
-        counts = Counter()
-        for word in data:
-            for i in range(len(word) - 1):
-                counts[word[i], word[i + 1]] += 1
+    counts = Counter()
+    for word in data:
+        for i in range(len(word) - 1):
+            counts[word[i], word[i + 1]] += 1
 
+    while len(tokens) < vocab_size:
         # find the most common adjacent pair
-        p1, p2 = max(counts, key=counts.get)
+        p1, p2 = max(counts, key=lambda p: counts[p] * (p[0] + p[1] not in tokens))
         count = counts[p1, p2]
         if count == 1:
-            print()
+            print('No more pairs with count > 1')
             break
 
         tokens.add(p1 + p2)
@@ -62,6 +62,14 @@ def train_bpe(text: str, vocab_size: int):
             read_head = 0
             while read_head < len(word):
                 if word[read_head : read_head + 2] == pair:
+                    # Updating all counts
+                    if read_head > 0:
+                        counts[word[read_head - 1], p1] -= 1
+                        counts[word[read_head - 1], p1 + p2] += 1
+                    if read_head + 2 < len(word):
+                        counts[p2, word[read_head + 2]] -= 1
+                        counts[p1 + p2, word[read_head + 2]] += 1
+
                     word[write_head] = p1 + p2
                     read_head += 1
                 else:
@@ -69,5 +77,12 @@ def train_bpe(text: str, vocab_size: int):
                 write_head += 1
                 read_head += 1
             del word[write_head:]
+        count
 
-    return tokens
+    token_with_freq = {tok: 0 for tok in tokens}
+    token_with_freq.update({
+        tok: count
+        for token, count in counts.items()
+        if (tok := token[0] + token[1]) in tokens
+    })
+    return token_with_freq
