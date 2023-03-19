@@ -85,6 +85,8 @@ class UpcasingTransformer(nn.Module):
     def forward(self, tokens: TT['batch', 'token', int]) -> TT['batch', 'token', 2]:
         assert tokens.shape[-1] <= self.block_size
 
+        tokens = tokens.to(self.embedding.weight.device)
+
         emb: TT['batch', 'token', 'emb'] = self.embedding(tokens)
         pos_emb: TT['token', 'emb'] = self.positional_embedding(
             torch.arange(tokens.shape[1], device=tokens.device))
@@ -102,13 +104,13 @@ class UpcasingTransformer(nn.Module):
         logits = self(prompt)
         loss = F.cross_entropy(logits.view(-1, 2),
                                expected.view(-1),
-                               weight=torch.tensor([1, 25.0]))
+                               weight=torch.tensor([1, 25.0]).to(logits.device))
         return loss
 
     def predict(self, prompt: str) -> str:
         enc = list(prompt.encode())
         for i in range(0, len(enc), self.block_size):
-            block = torch.tensor(enc[i:i + self.block_size])
+            block = torch.tensor(enc[i:i + self.block_size], device=self.embedding.weight.device)
             logits = self(block.unsqueeze(0))
             flip = logits.argmax(-1).squeeze(0).tolist()
             for j, f in enumerate(flip):
