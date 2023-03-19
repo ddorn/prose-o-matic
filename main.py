@@ -1,4 +1,3 @@
-
 from collections import Counter
 import re
 from io import TextIOWrapper, StringIO
@@ -17,6 +16,7 @@ patch_typeguard()
 batch = 'batch'
 token = 'token'
 
+
 class BPE:
     """
     A Byte Pair Encoding tokenizer that does not cross word boundaries.
@@ -30,8 +30,7 @@ class BPE:
 
     def __init__(self, token_frequencies: dict[bytes, int]) -> None:
         self.token_frequencies = token_frequencies
-        self.tokens = sorted(token_frequencies,
-            key=lambda t: token_frequencies[t], reverse=True)
+        self.tokens = sorted(token_frequencies, key=lambda t: token_frequencies[t], reverse=True)
         self.token_to_id = {token: i for i, token in enumerate(self.tokens)}
 
     def __str__(self) -> str:
@@ -57,20 +56,19 @@ class BPE:
         # for efficiency.
         word_counts = Counter(cls.stream_words(text))
 
-        data = tuple(
-            (cls._encode(word), count)
-            for word, count in word_counts.items()
-        )
+        data = tuple((cls._encode(word), count) for word, count in word_counts.items())
         tokens = {bytes([b]) for b in range(256)}
 
-        if verbose > 1: print(ctime(), f'Split text into {len(data)} words and {len(tokens)} base tokens.')
+        if verbose > 1:
+            print(ctime(), f'Split text into {len(data)} words and {len(tokens)} base tokens.')
 
         # Compute the frequency of each adjacent pair.
         counts: dict[tuple[bytes, bytes], int] = Counter()
         for word, count in data:
             for i in range(len(word) - 1):
                 counts[word[i], word[i + 1]] += count
-        if verbose > 1: print(ctime(), f'Computed pair frequencies for {len(counts)} pairs.')
+        if verbose > 1:
+            print(ctime(), f'Computed pair frequencies for {len(counts)} pairs.')
 
         while len(tokens) < vocab_size:
 
@@ -83,7 +81,10 @@ class BPE:
 
             tokens.add(p1 + p2)
 
-            if verbose: print(ctime(), f'Added token {p1 + p2!r} with frequency {count} (nb_of_tokens: {len(tokens)})')
+            if verbose:
+                print(
+                    ctime(),
+                    f'Added token {p1 + p2!r} with frequency {count} (nb_of_tokens: {len(tokens)})')
 
             # Merge every occurrence of the pair and update the counts.
             pair = [p1, p2]
@@ -95,7 +96,7 @@ class BPE:
                 # We modify the word in place.
                 while read_head < len(word):
                     # If the current token and the next one are the pair:
-                    if word[read_head : read_head + 2] == pair:
+                    if word[read_head:read_head + 2] == pair:
                         # Update the counts.
                         if read_head > 0:
                             counts[word[read_head - 1], p1] -= count
@@ -120,13 +121,27 @@ class BPE:
         token_with_freq = {tok: 0 for tok in tokens}
         token_with_freq.update({
             tok: count
-            for token, count in counts.items()
-            if (tok := token[0] + token[1]) in tokens
+            for token, count in counts.items() if (tok := token[0] + token[1]) in tokens
         })
         return cls(token_with_freq)
 
     @staticmethod
-    def stream_words(stream: str | Iterator[str]) -> Generator[str, None, None]:
+    def stream_words(stream: str | Iterator[str], max_len: int = 32) -> Generator[str, None, None]:
+        """Stream words from string or an iterator of strings.
+
+        Words are comprised of (possibly) a space followed by either:
+        - one digit
+        - one or more letters
+        - one or more non-alphanumeric characters
+        Words are maximum `max_len` characters long.
+
+        Args:
+            stream (str | Iterator[str]): Text to stream words from.
+            max_len (int): Maximum length of words. Defaults to 32.
+
+        Yields:
+            str: A word.
+        """
         if isinstance(stream, str):
             stream = iter([stream])
 
@@ -136,12 +151,12 @@ class BPE:
         chunk = 32
 
         while True:
-            text = next(stream, None)
-            if text is None: return
+            text = next(stream, '')
+            if not text: return
 
             pos = 0
             while pos < len(text):
-                match = part_regex.search(text[pos:pos+chunk])
+                match = part_regex.search(text[pos:pos + chunk])
                 assert match is not None
                 part = match.group()
                 if len(part) > 1 and part[-1] == ' ':
@@ -151,8 +166,12 @@ class BPE:
                     yield part
                     pos += len(part)
 
-    @typechecked
-    def tokenize(self, texts: list[str], pad: bytes=b' ', pad_length: int | None=None) -> TT['batch', 'token', torch.long]:
+    # @typechecked
+    def tokenize(self,
+                 texts: list[str],
+                 pad: bytes = b' ',
+                 pad_length: int | None = None,
+                 _flag: bool = True) -> TT['batch', 'token', torch.long]:
         """
         Tokenizes a list of texts.
         :param texts: The texts to tokenize.
@@ -165,36 +184,29 @@ class BPE:
         result = []
         for text in texts:
             tokens: list[bytes] = []
-            for word_ in self.stream_words(text):
+            for word_ in self.stream_words(text, max_len=32):
                 word = self._encode(word_)
                 # We merge the tokens until there is no more pair.
                 while True:
                     # Find the most frequent pair that is a token.
-                    best = None
-                    best_count = 0
-                    for p1, p2 in zip(word, word[1:]):
-                        count = self.token_frequencies.get(p1 + p2, 0)
-                        if count > best_count:  # We found a better pair!
-                            best = p1, p2
-                            best_count = count
-
-                    # If We did not find any pair, we are done for this word.
-                    if best is None:
+                    count, best = max(((self.token_frequencies.get(p1 + p2, -999), (p1, p2))
+                                       for p1, p2 in zip(word, word[1:])),
+                                      default=(-999, None))
+                    # If We did not find any pair that is a token, we are done for this word.
+                    if best is None or count == -999:
                         break
 
                     # Merge all the pairs
                     p1, p2 = best
-                    write_head = 0
                     read_head = 0
-                    while read_head < len(word):
-                        if word[read_head : read_head + 2] == [p1, p2]:
-                            word[write_head] = p1 + p2
-                            read_head += 2
-                        else:
-                            word[write_head] = word[read_head]
-                            read_head += 1
-                        write_head += 1
-                    del word[write_head:]
+                    while read_head < len(word) - 1:
+                        if word[read_head] == p1 and word[read_head + 1] == p2:
+                            word[read_head] = p1 + p2
+                            # This is not efficient in theory, but in practice
+                            # words from stream_words are at most 32 chars long
+                            # so they contain 1 or sometimes 2 pairs to merge.
+                            del word[read_head + 1]
+                        read_head += 1
 
                 tokens.extend(word)
             result.append(tokens)
@@ -234,22 +246,39 @@ class BPE:
     def load(cls, file: FILE_LIKE) -> 'BPE':
         return cls(torch.load(file))
 
+
 class BigramModel(nn.Module):
+
     def __init__(self, voc_size: int, embedding_dim: int):
         super().__init__()
 
         self.voc_size = voc_size
-        self.embedding = nn.Embedding(voc_size, embedding_dim)
-        self.unembedding = nn.Linear(embedding_dim, voc_size)
+        self.embedding = nn.Embedding(voc_size, voc_size)
+        # self.embedding = nn.Embedding(voc_size, embedding_dim)
+        # self.unembedding = nn.Linear(embedding_dim, voc_size)
 
-    def forward(self, tokens: TT['batch', 'token', torch.long]) -> TT['batch', 'token', 'embedding', torch.long]:
+    @typechecked
+    def forward(self, tokens: TT['batch', 'token',
+                                 torch.long]) -> TT['batch', 'token', 'embedding']:
         x = self.embedding(tokens)
-        logits = self.unembedding(x)
-        return logits
+        return x
+        return self.unembedding(x)
 
+    @torch.no_grad()
+    @typechecked
+    def generate(self, prompt: TT['batch', 'token', torch.long],
+                 nb_tokens: int) -> tuple[TT['batch', 'more-tokens', torch.long], TT['batch']]:
+        log_probs = torch.zeros(prompt.shape[0])
+        for _ in range(nb_tokens):
+            probs = self(prompt)[:, -1, :].softmax(-1)
+            new_tokens = torch.multinomial(probs, 1)
+            log_probs += torch.log(probs.gather(-1, new_tokens)).squeeze(1)
+            prompt = torch.cat([prompt, new_tokens], dim=-1)
+        return prompt, log_probs
+
+    @typechecked
     def loss(self, tokens: TT['batch', 'token', torch.long],
-                   targets: TT['batch', 'token', torch.long]) -> tuple[TT['batch', 'token', 'embedding', torch.long], torch.Tensor]:
+             targets: TT['batch', torch.long]) -> tuple[TT['batch', 'embedding'], torch.Tensor]:
         logits = self(tokens)[:, -1, :]
-        print("loss", logits.shape, targets.shape)
-        loss = F.cross_entropy(logits, targets.squeeze(-1))
+        loss = F.cross_entropy(logits, targets)
         return logits, loss
