@@ -9,3 +9,27 @@ column_limit = 100
 continuation_align_style = "space"
 coalesce_brackets = true
 indent_dictionary_value = true
+
+[tool.poetry]
+name = "prose-o-matic"
+version = "0.1.0"
+description = "Experiments with training transformers"
+authors = ["Diego Dorn"]
+license = "WTFPL"
+readme = "README.md"
+packages = [{include = "prose_o_matic"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+einops = "^0.6.0"
+torch = "^2.0.0"
+torchtyping = "^0.1.4"
+jsonlines = "^3.1.0"
+ipykernel = "^6.22.0"
+jupyter = "^1.0.0"
+matplotlib = "^3.7.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

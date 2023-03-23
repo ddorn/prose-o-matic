@@ -1,7 +1,7 @@
 import re
 from collections import Counter
 from time import ctime
-from typing import Generator, Iterator, Optional, Union
+from typing import Generator, Iterator, Optional, Union, Dict, List
 
 import torch
 from torch.serialization import FILE_LIKE
@@ -9,6 +9,25 @@ from torchtyping import TensorType as TT  # type: ignore
 
 batch = 'batch'
 token = 'token'
+
+
+class ByteTokenizer:
+    """A simple tokenizer that encodes strings as their utf-8 byte values."""
+
+    @staticmethod
+    def tokenize(texts: List[str], pad_to=None) -> TT['batch', 'token', int]:
+        encoded = [list(t.encode('utf-8')) for t in texts]
+        # pad to max length
+        if pad_to is None:
+            pad_to = max(len(t) for t in encoded)
+        else:
+            encoded = [t[:pad_to] for t in encoded]  # truncate if too long
+        encoded = [t + [0] * (pad_to - len(t)) for t in encoded]
+        return torch.tensor(encoded)
+
+    @staticmethod
+    def detokenize(tokens: TT['batch', 'token', int]) -> List[str]:
+        return [bytes(t).decode('utf-8', errors='replace') for t in tokens]
 
 
 class BPE:
@@ -22,7 +41,7 @@ class BPE:
     but it corresponds to what I think BPE does.
     """
 
-    def __init__(self, token_frequencies: dict[bytes, int]) -> None:
+    def __init__(self, token_frequencies: Dict[bytes, int]) -> None:
         self.token_frequencies = token_frequencies
         self.tokens = sorted(token_frequencies, key=lambda t: token_frequencies[t], reverse=True)
         self.token_to_id = {token: i for i, token in enumerate(self.tokens)}
@@ -163,7 +182,7 @@ class BPE:
 
     # @typechecked
     def tokenize(self,
-                 texts: list[str],
+                 texts: List[str],
                  pad: bytes = b' ',
                  pad_length: Optional[int] = None,
                  _flag: bool = True) -> TT['batch', 'token', int]:
@@ -217,7 +236,7 @@ class BPE:
 
         return tensor.view(len(result), pad_length)
 
-    def detokenize(self, tokens: TT['batch', 'token', torch.long]) -> list[str]:
+    def detokenize(self, tokens: TT['batch', 'token', torch.long]) -> List[str]:
         """
         Detokenizes a tensor of tokens.
         Note that not all sequences of tokens are valid in utf-8,
@@ -231,7 +250,7 @@ class BPE:
         ]
 
     @staticmethod
-    def _encode(s: str) -> list[bytes]:
+    def _encode(s: str) -> List[bytes]:
         return [bytes([b]) for b in s.encode('utf-8')]
 
     def save(self, file: FILE_LIKE) -> None:
